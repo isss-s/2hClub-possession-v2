@@ -1,0 +1,111 @@
+"""Choose the rule settings on Metrica's sample games, never on our match.
+
+    python possession/tune.py            # writes possession/settings.json
+
+Coordinate search: starting from football-reasoned values, each setting in turn is tried over its
+range with the others fixed, and the value with the best mean spellF1 over the sample games is
+kept if it gains at least MIN_GAIN; this repeats until nothing changes. The scorer is the official one
+(evaluation/possession_metrics.py), run on the event-based labels of metrica.py.
+"""
+import json
+import os
+import sys
+
+import numpy as np
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)
+sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.join(ROOT, "evaluation"))
+import metrica  # noqa: E402
+import possession_metrics as pm  # noqa: E402
+import rules  # noqa: E402
+
+SETTINGS = os.path.join(HERE, "settings.json")
+MIN_GAIN = 0.005   # a change must gain this much spellF1 to be kept; smaller gains are noise
+
+# Starting point: values from football reasoning, before looking at any score.
+START = {
+    "radius": 1.5,          # m; a player in control has the ball at his feet
+    "switch": 25,           # frames; "a player keeps the ball for a few seconds" -- 1 s
+    "gap_long": 125,        # frames; the ball is rarely hidden behind players for 5 s
+    "out_margin": 0.5,      # m past the line, for tracking noise
+    "slow_window": 125,     # frames each side for the median speed
+    "slow": 3.0,            # m/s; a ball placed for a restart barely moves
+    "min_dead": 300,        # frames; a 12 s slow stretch
+    "min_stop": 50,         # frames; stoppages long enough to wait for a restart kick
+    "kick": 4.0,            # m/s; the restart kick
+    "max_wait": 250,        # frames; at most 10 s
+    "touch": 3.0,           # m/s; velocity change of a touch
+    "touch_radius": 2.5,    # m
+    "touches": 3,           # in a row by the other team; 0 turns the touch rule off
+}
+
+SEARCH = {
+    "radius": [0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0],
+    "switch": [5, 10, 15, 20, 25, 35, 50, 75],
+    "gap_long": [25, 50, 75, 100, 125, 150, 200, 250, 375],
+    "out_margin": [0.0, 0.5, 1.0, 2.0],
+    "slow": [0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0],
+    "min_dead": [125, 200, 300, 450, 600],
+    "min_stop": [25, 50, 75, 125],
+    "kick": [1.0, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0, 10.0],
+    "max_wait": [125, 250, 375, 500],
+    "touches": [0, 2, 3, 4, 5],
+    "touch": [1.0, 1.5, 2.0, 3.0, 4.0, 6.0],
+    "touch_radius": [1.5, 2.0, 2.5, 3.0, 3.5, 4.0],
+}
+
+
+def load_games():
+    games = []
+    for g in metrica.GAMES:
+        ball, players, team, _ = metrica.read_tracking(g)
+        gt = pm.label_codes(metrica.labels(g, len(ball)))
+        games.append((ball, players, team, gt, pm.valid_runs(gt)))
+    return games
+
+
+def score(games, p):
+    """Mean spellF1 and macroF1 over the games."""
+    spell, macro = [], []
+    for ball, players, team, gt, valid in games:
+        pred = pm.label_codes(rules.label(ball, players, team, metrica.PITCH, p))
+        spell.append(pm.spell_scores(gt, pred, valid)["mean_f1"])
+        macro.append(pm.macro_f1(pm.scored_confusion(pm.confusion(gt, pred))))
+    return float(np.mean(spell)), float(np.mean(macro)), spell
+
+
+def search(games, p, verbose=True):
+    p = dict(p)
+    best = score(games, p)[0]
+    if verbose:
+        print("start  spellF1 {:.4f}".format(best))
+    for sweep in range(4):
+        changed = False
+        for key, values in SEARCH.items():
+            for v in values:
+                if v == p[key]:
+                    continue
+                trial = dict(p, **{key: v})
+                s = score(games, trial)[0]
+                if s > best + MIN_GAIN:
+                    best, p, changed = s, trial, True
+                    if verbose:
+                        print("sweep {} {:>12} = {:<6} spellF1 {:.4f}".format(sweep, key, v, best))
+        if not changed:
+            break
+    return p, best
+
+
+if __name__ == "__main__":
+    games = load_games()
+    p, best = search(games, START)
+    spell, macro, per_game = score(games, p)
+    print("chosen:", json.dumps(p))
+    print("spellF1 {:.4f} (per game {})  macroF1 {:.4f}".format(
+        spell, ", ".join("{:.3f}".format(s) for s in per_game), macro))
+    with open(SETTINGS, "w") as handle:
+        json.dump(p, handle, indent=2)
+        handle.write("\n")
+    print("wrote", os.path.relpath(SETTINGS, ROOT))

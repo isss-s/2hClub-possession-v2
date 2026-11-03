@@ -1,0 +1,3 @@
+# 2hClub possession pipeline: Python 3.9.6
+numpy==2.0.2
+pandas==2.3.3
