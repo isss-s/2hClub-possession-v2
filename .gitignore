@@ -67,3 +67,4 @@ external/
 .venv/
 /2hClub.csv
 tiles.zip
+spans_*.json
