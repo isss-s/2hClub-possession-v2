@@ -10,7 +10,9 @@ ball in any of its frames (or last put it, if it has lost it). That is about 12 
 catch the tracking's ball being in the wrong place, which is what the detector is for. A span with
 no tracked ball before it gets all tiles.
 
-The pilot is PILOT_SPANS spans spread evenly over the live spans.
+The pilot is PILOT_SPANS spans spread evenly over the live spans. The second pilot (for the motion
+filter in vision/fuse.py, added after the first pilot failed) takes the spans halfway between
+the first pilot's, so the two samples share no frame.
 """
 import json
 import os
@@ -79,7 +81,10 @@ def main():
             spans.append({"start": int(a), "end": int(b), "tiles": tiles_near(seen)})
     pick = np.linspace(0, len(spans) - 1, PILOT_SPANS).round().astype(int)
     pilot = [spans[i] for i in sorted(set(pick))]
-    for name, chosen in (("spans_live.json", spans), ("spans_pilot.json", pilot)):
+    pick2 = ((pick[:-1] + pick[1:]) // 2).tolist() + [int(pick[-1]) - 1]
+    pilot2 = [spans[i] for i in sorted(set(pick2) - set(pick.tolist()))]
+    for name, chosen in (("spans_live.json", spans), ("spans_pilot.json", pilot),
+                         ("spans_pilot2.json", pilot2)):
         frames = sum(s["end"] - s["start"] for s in chosen)
         tiles = sum((s["end"] - s["start"]) * len(s["tiles"]) for s in chosen)
         path = os.path.join(ROOT, "external", name)

@@ -8,6 +8,10 @@ tracking has one. The pass marks were set before any detection was seen:
 
     coverage   a confident ball on at least 50% of pilot frames
     agreement  where both have a ball, at least 75% within 2 m of each other
+
+The first pilot (spans_pilot.json, best candidate per frame) failed on agreement: the detector
+jumped to other objects. The motion filter in vision/fuse.py was then written from physics alone
+and is judged on a second pilot of different frames (spans_pilot2.json), with the same marks.
 """
 import glob
 import os

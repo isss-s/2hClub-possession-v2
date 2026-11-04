@@ -8,8 +8,12 @@ ran on. Per frame:
      ball does not stay on the same pixel for most of a second, while fixed marks on the image (a
      scoreboard digit, a painted spot) do. This needs no knowledge of where such marks are in our
      video, and works inside short detected spans.
-  2. the most confident remaining candidate is taken back to the pitch through the frame's
-     inverse homography.
+  2. all remaining candidates are taken back to the pitch through the frame's inverse homography,
+     and one per frame is chosen by `follow`: the most confident sequence of candidates that
+     moves like a ball. Physics only -- consecutive picks may not be further apart than a ball
+     at MAX_SPEED can travel -- and no use of the tracking, so the detector can still correct it.
+     Picking the single most confident candidate per frame instead let the detector jump to
+     other objects (a sock, a spare ball) on many frames.
 
 `fused_ball` then uses it only where it is confident (conf.json, chosen on outside test tiles):
 where the tracking has no ball, it fills it; where the two are more than DISAGREE m apart, the
@@ -31,6 +35,9 @@ from load_homography import load as load_homography  # noqa: E402
 STILL_PX = 3.0
 STILL_FRAMES = 10
 DISAGREE = 3.0
+MAX_SPEED = 45.0    # m/s; faster than any kick (the same limit as possession/rules.py)
+FPS = 25
+BRIDGE = 3          # frames; a brief occlusion the ball can be followed through
 
 
 def load_detections(folder, n):
@@ -82,12 +89,84 @@ def to_pitch(px, py):
     return np.stack([x * length, y * width], axis=1)
 
 
+def candidates_to_pitch(dets):
+    """(n, k, 2) every candidate in pitch metres. NaN in, NaN out."""
+    matrices, _, valid = load_homography()
+    inv = np.full_like(matrices, np.nan)
+    inv[valid] = np.linalg.inv(matrices[valid])
+    inv = inv[:, None]
+    px, py = dets[..., 0], dets[..., 1]
+    den = inv[..., 2, 0] * px + inv[..., 2, 1] * py + inv[..., 2, 2]
+    x = (inv[..., 0, 0] * px + inv[..., 0, 1] * py + inv[..., 0, 2]) / den
+    y = (inv[..., 1, 0] * px + inv[..., 1, 1] * py + inv[..., 1, 2]) / den
+    length, width = GAMES[GAME]["pitch"]
+    return np.stack([x * length, y * width], axis=-1)
+
+
+def follow(xy, conf, threshold):
+    """Index of the chosen candidate per frame, or -1 for none. Viterbi over the candidates.
+
+    Cost of a frame: -log(conf) for a candidate, -log(threshold) for none (so on its own a
+    candidate below the threshold never beats none). A candidate may follow one of up to BRIDGE
+    frames earlier (the frames between are none) if a ball at MAX_SPEED could cover the distance
+    in that time, and costs nothing extra; picking up a candidate otherwise -- after a longer
+    gap, at the start, or another object -- costs two frames of none. So switching to another
+    object must be paid for, while following the ball, through brief occlusions, is not.
+    """
+    n, k = conf.shape
+    none_cost = -np.log(threshold)
+    start = 2 * none_cost
+    step = MAX_SPEED / FPS
+    emit = np.where(np.isnan(conf), np.inf, -np.log(np.clip(np.nan_to_num(conf), 1e-6, 1)))
+    costs = np.full((n, k + 1), np.inf)            # best path cost ending in each state
+    back_t = np.zeros((n, k + 1), dtype=np.int32)  # predecessor frame and state
+    back_s = np.zeros((n, k + 1), dtype=np.int16)
+    costs[0, :k] = emit[0] + start
+    costs[0, k] = none_cost
+    back_t[0] = -1
+    for t in range(1, n):
+        prev = int(np.argmin(costs[t - 1]))
+        best = np.full(k, costs[t - 1, prev] + start)          # pick up a new candidate
+        bt = np.full(k, t - 1)
+        bs = np.full(k, prev)
+        for g in range(1, min(BRIDGE, t) + 1):
+            d = np.hypot(xy[t][:, None, 0] - xy[t - g][None, :, 0],
+                         xy[t][:, None, 1] - xy[t - g][None, :, 1])
+            ok = np.nan_to_num(d, nan=np.inf) <= step * g
+            via = np.where(ok, costs[t - g, None, :k] + (g - 1) * none_cost, np.inf)
+            j = np.argmin(via, axis=1)
+            c = via[np.arange(k), j]
+            better = c < best
+            best[better], bt[better], bs[better] = c[better], t - g, j[better]
+        costs[t, :k] = best + emit[t]
+        back_t[t, :k], back_s[t, :k] = bt, bs
+        costs[t, k] = costs[t - 1, prev] + none_cost
+        back_t[t, k], back_s[t, k] = t - 1, prev
+    out = np.full(n, -1, dtype=np.int16)
+    t, s = n - 1, int(np.argmin(costs[n - 1]))
+    while t >= 0:
+        if s < k:
+            out[t] = s
+        t, s = back_t[t, s], back_s[t, s]
+    return out
+
+
 def detector_ball(folder, n, conf):
     """(n, 2) the detector's ball in metres where confident (>= conf), NaN elsewhere."""
-    top = best(drop_still(load_detections(folder, n)))
-    ball = to_pitch(top[:, 0], top[:, 1])
-    ball[~(np.nan_to_num(top[:, 2]) >= conf)] = np.nan
+    dets = drop_still(load_detections(folder, n))
+    xy = candidates_to_pitch(dets)
+    ball = np.full((n, 2), np.nan)
+    ran = ~np.isnan(dets[:, :, 2]).all(1)
+    for a, b in _runs(ran):
+        pick = follow(xy[a:b], dets[a:b, :, 2], conf)
+        rows = np.flatnonzero(pick >= 0)
+        ball[a + rows] = xy[a + rows, pick[rows]]
     return ball
+
+
+def _runs(mask):
+    edges = np.diff(np.concatenate(([0], mask.astype(int), [0])))
+    return list(zip(np.flatnonzero(edges == 1), np.flatnonzero(edges == -1)))
 
 
 def read_conf(path):
