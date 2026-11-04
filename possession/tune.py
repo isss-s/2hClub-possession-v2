@@ -4,7 +4,7 @@
 
 Coordinate search: starting from football-reasoned values, each setting in turn is tried over its
 range with the others fixed, and the value with the best mean spellF1 over the sample games is
-kept if it gains at least MIN_GAIN; this repeats until nothing changes. The scorer is the official one
+kept if it gains at least MIN_GAIN on the mean and costs no single game more than MAX_LOSS; this repeats until nothing changes. The scorer is the official one
 (evaluation/possession_metrics.py), run on the event-based labels of metrica.py.
 """
 import json
@@ -22,7 +22,8 @@ import possession_metrics as pm  # noqa: E402
 import rules  # noqa: E402
 
 SETTINGS = os.path.join(HERE, "settings.json")
-MIN_GAIN = 0.005   # a change must gain this much spellF1 to be kept; smaller gains are noise
+MIN_GAIN = 0.005   # a change must gain this much mean spellF1 to be kept; smaller gains are noise
+MAX_LOSS = 0.01    # ...and must not cost any single game more than this
 
 # Starting point: values from football reasoning, before looking at any score.
 START = {
@@ -60,7 +61,7 @@ SEARCH = {
 def load_games():
     games = []
     for g in metrica.GAMES:
-        ball, players, team, _ = metrica.read_tracking(g)
+        ball, players, team = metrica.read_tracking(g)
         gt = pm.label_codes(metrica.labels(g, len(ball)))
         games.append((ball, players, team, gt, pm.valid_runs(gt)))
     return games
@@ -78,7 +79,7 @@ def score(games, p):
 
 def search(games, p, verbose=True):
     p = dict(p)
-    best = score(games, p)[0]
+    best, _, per_game = score(games, p)
     if verbose:
         print("start  spellF1 {:.4f}".format(best))
     for sweep in range(4):
@@ -88,9 +89,10 @@ def search(games, p, verbose=True):
                 if v == p[key]:
                     continue
                 trial = dict(p, **{key: v})
-                s = score(games, trial)[0]
-                if s > best + MIN_GAIN:
-                    best, p, changed = s, trial, True
+                s, _, trial_games = score(games, trial)
+                worst = min(np.subtract(trial_games, per_game))
+                if s > best + MIN_GAIN and worst > -MAX_LOSS:
+                    best, p, per_game, changed = s, trial, trial_games, True
                     if verbose:
                         print("sweep {} {:>12} = {:<6} spellF1 {:.4f}".format(sweep, key, v, best))
         if not changed:
@@ -98,8 +100,20 @@ def search(games, p, verbose=True):
     return p, best
 
 
+def leave_one_out(games):
+    """For each game: tune on the others, score this one. The fair estimate for a new match."""
+    rows = []
+    for i in range(len(games)):
+        p, _ = search(games[:i] + games[i + 1:], START, verbose=False)
+        rows.append((score([games[i]], START)[0], score([games[i]], p)[0]))
+    return rows
+
+
 if __name__ == "__main__":
     games = load_games()
+    print("leave one game out (tuned on the other games):")
+    for g, (before, after) in zip(metrica.GAMES, leave_one_out(games)):
+        print("  game {}: starting values {:.3f} -> tuned {:.3f}".format(g, before, after))
     p, best = search(games, START)
     spell, macro, per_game = score(games, p)
     print("chosen:", json.dumps(p))

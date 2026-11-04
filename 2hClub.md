@@ -16,10 +16,10 @@ Why rules rather than a learned model:
 
 - **Every decision can be explained.** "Possession changed because Athletic had the ball at their
   feet for a second" can be checked by anyone watching the video.
-- **There are few settings, so little to overfit.** We tune 13 numbers on about 280,000 labelled
-  frames from other games.
-- **They carry over between games.** Settings tuned on one sample game also improve the other
-  (section 5), which is the closest test we have of how they will do on our match.
+- **There are few settings, so little to overfit.** We tune 13 numbers on about 425,000 labelled
+  frames from three other games.
+- **They carry over between games.** Settings tuned on two sample games also improve the
+  third (section 5), which is the closest test we have of how they will do on our match.
 
 ## 2. Training data
 
@@ -27,12 +27,12 @@ The rules say no labels on the provided game, so all tuning uses outside data:
 
 | dataset | source | who labelled it | how much | how we use it |
 |---|---|---|---|---|
-| Metrica Sports sample games 1 and 2: tracking and event data | https://github.com/metrica-sports/sample-data (public; "acknowledge the source") | events: Metrica Sports; possession labels: built by our code from those events | 2 matches, 282,188 graded frames, 676 possessions | choose the rule settings |
+| Metrica Sports sample games 1, 2 and 3: tracking and event data | https://github.com/metrica-sports/sample-data (public; "acknowledge the source") | events: Metrica Sports; possession labels: built by our code from those events | 3 matches, 424,886 graded frames, 1,058 possessions | choose the rule settings |
 
 **Possession labels from events** (`possession/metrica.py`), made by code with no person
 deciding any frame:
 
-- A team has the ball from its pass, recovery, set piece or shot until the other team's.
+- A team has the ball from its pass, carry, recovery, set piece or shot until the other team's.
   Challenges, aerial duels and ball losses don't hand the ball over by themselves. A recovery or
   the other team's next pass does. This follows the challenge's definition: a touch without
   control isn't a change of possession.
@@ -41,8 +41,9 @@ deciding any frame:
 
 Frames before kick-off and between the halves aren't graded.
 
-The tracking of the sample games resembles ours where it matters. Both lose the ball on about 41%
-of frames, and their ball speeds have the same median (5 m/s) and 95th percentile (17 m/s). These
+The tracking of the sample games resembles ours where it matters. They lose the ball on 32–41% of
+frames (ours: 41%), and their ball speeds have a similar median (5–6.5 m/s; ours 5 m/s) and 95th
+percentile (17–18 m/s; ours 17 m/s). These
 numbers come from automatic statistics of the tracking files only.
 
 **We used no hand labels, no ground truth and no human-produced data about the provided game.**
@@ -67,7 +68,8 @@ numbers come from automatic statistics of the tracking files only.
 1. Start from values set by football reasoning before looking at any score. For example, a
    player in control has the ball at their feet, and a restart is a kick.
 2. Try each setting in turn over a range, with the others fixed. Keep a new value only if it
-   raises the mean spellF1 over the two sample games by at least 0.005; smaller gains are noise.
+   raises the mean spellF1 over the three sample games by at least 0.005 (smaller gains are
+   noise) **and** costs no single game more than 0.01.
 3. Repeat until nothing changes.
 
 The official scorer (`evaluation/possession_metrics.py`) does the scoring. The chosen values are
@@ -92,18 +94,21 @@ committed in `possession/settings.json`.
 
 | | spellF1 | macroF1 |
 |---|---|---|
-| starting values | 0.629 | 0.842 |
-| tuned values | **0.689** (game 1: 0.669, game 2: 0.708) | **0.854** |
+| starting values | 0.627 | 0.845 |
+| tuned values | **0.684** (games 1/2/3: 0.669, 0.708, 0.673) | **0.862** |
 
-**Do the settings carry over to a game they weren't tuned on?** We tuned on one sample game and
-scored the other:
+**Do the settings carry over to a game they weren't tuned on?** Leave one game out: tune on the
+other two games, score the one left out.
 
-| tuned on | scored on | starting values | tuned values |
-|---|---|---|---|
-| game 1 | game 2 | 0.666 | 0.684 |
-| game 2 | game 1 | 0.593 | 0.690 |
+| left out | starting values | tuned on the other two |
+|---|---|---|
+| game 1 | 0.593 | **0.688** |
+| game 2 | 0.666 | **0.708** |
+| game 3 | 0.622 | **0.673** |
+| mean | 0.627 | **0.690** |
 
-They improve the unseen game both times.
+The left-out game improves every time, by +0.04 to +0.10, which is our best estimate of the gain on
+a new match. Tuning on two games and tuning on all three choose the same settings.
 
 **Shape of our output on the provided match**: about 3.2 possessions a minute, mean 10.1 s,
 median 7.0 s. The sample games' event labels give 3.4–3.7 a minute, mean 10.6–12.2 s.
@@ -130,14 +135,13 @@ methods anyway.
   trained on outside football footage, and run on the tactical video, is our next step.
 - **Ball in the air.** The tracking puts the ball on the ground plane, so a high ball "lands"
   metres away from where it really is.
-- **Only two sample games for tuning.** A third public game, in a different format, could serve
-  as a further test.
+- **Only three sample games for tuning**, all from the same tracking provider.
 
 ## 7. Reproduction
 
 See [README.md](README.md). In short:
 
-1. Clone Metrica's sample data into `external/`.
+1. Clone Metrica's sample data into `external/` (Game 3 is read with kloppy).
 2. Run `python possession/tune.py`, which writes `settings.json`.
 3. Run `python possession/match.py`, which writes the file.
 
