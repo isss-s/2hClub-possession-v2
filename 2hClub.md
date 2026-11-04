@@ -162,7 +162,12 @@ documented work; it does not touch the submitted file.
   control rule.
 - **Too much dead ball.** On the sample games our rules call 41–43% of frames dead where the events
   say 30–34%, and on our match 46%. Most of it is the tracking losing the ball for over 5 s while
-  play goes on.
+  play goes on. We tried calling such a gap dead only while the players walk, since in the
+  sample games players move at about 1.2 m/s in these live gaps against 0.9 m/s in stoppages,
+  and their speeds are distributed like ours. Every setting we tried (thresholds 0.9–1.5 m/s,
+  windows of 1–5 s, gap limits of 1–5 s) lowered the sample games' mean spellF1, by 0.005 to
+  0.02, so it is not used. Without the ball, the team in possession during such a gap is unknown
+  anyway, so calling it live mostly adds frames with the wrong team.
 - **Ball missing on 41% of frames.** We rely on the tracking's ball alone. Our detector trained on
   outside footage (section 6) disagreed with the tracking too often to be trusted without labels.
   A detector trained on footage from the same camera system, or a few hand-labelled frames of
