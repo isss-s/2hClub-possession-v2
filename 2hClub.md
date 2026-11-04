@@ -81,8 +81,8 @@ committed in `possession/settings.json`.
 |---|---|---|
 | Tactical tracking (ATD), players | **yes** | each team's nearest player to the ball |
 | Tactical tracking (ATD), ball | **yes** | position, speed, out of play, gaps, touches |
-| Tactical video | no | — |
-| Homography | no | — |
+| Tactical video | tried, dropped | a ball detector trained on outside footage, run on two pilot samples; it did not pass the check we set in advance (section 6) |
+| Homography | tried, dropped | with the detector: pixels → pitch metres |
 | Smart Tagging | no | — |
 | Broadcast video / tracking | no | not synchronised with the tactical timeline |
 | Public 5-minute ground truth | pipeline check only | run once on the final file, to confirm that frames line up and labels mean what we think (section 5); never used to choose anything |
@@ -119,7 +119,39 @@ score 0.038–0.424 spellF1 and 0.597–0.621 macroF1 there. The home share of a
 file, and changed nothing afterwards. Five minutes (17 possessions) is far too little to rank
 methods anyway.
 
-## 6. Limitations and next steps
+## 6. Tried and dropped: a ball detector trained on other matches (`vision/`)
+
+The tracking loses the ball on 41% of frames and sometimes puts it metres off. So we trained our
+own ball detector, using **only footage of other matches**:
+
+| step | file | what |
+|---|---|---|
+| data | `vision/build_external.py` | two CC BY 4.0 Roboflow Universe datasets: [football-ball-detection](https://universe.roboflow.com/roboflow-jvuqo/football-ball-detection-rejhg) v4 and [football-players-detection](https://universe.roboflow.com/roboflow-jvuqo/football-players-detection-3zvbc) v20 (ball class only), labelled by Roboflow. Each image is un-stretched to 16:9 and scaled so its ball is 4–9 px, like ours, then cut into 640 tiles: 3,804 training tiles, 2,536 with a ball |
+| train | `vision/train_external_colab.ipynb` | YOLO26s (COCO-pretrained), image size 1280, 25 epochs, Colab T4 |
+| threshold | same | the lowest confidence with precision ≥ 0.90 on the outside test tiles: **0.20** (precision 0.92, recall 0.89) |
+| frames | `vision/frame_spans.py` | the live frames of our output ±1 s (92,034), and per 2 s span only the tiles within ~12 m of the tracking's ball |
+| detect | `vision/detect_spans.py`, `detect_colab.ipynb` | Colab L4, 10.8 frames/s |
+| fuse | `vision/fuse.py` | drop candidates that sit still (fixed marks on the image); follow the candidates that move like a ball (no faster than 45 m/s, through gaps of up to 3 frames) |
+
+**The check, set before any detection was seen.** Running the whole match would cost about 12
+Colab units, so we first ran a pilot of about 2,900 frames. We would go ahead only if:
+
+- the detector found a confident ball on at least 50% of pilot frames; and
+- where both balls exist, at least 75% of detections were within 2 m of the tracking's ball.
+
+This is an automatic check with no labels; we never compared anything with the video by eye.
+
+| pilot | fusion | ball found | within 2 m of the tracking | impossible jumps (> 45 m/s) | decision |
+|---|---|---|---|---|---|
+| 1 (2,857 frames) | most confident candidate | 95.9% | **57.5%** | 12.5% of steps | stop |
+| 2 (2,873 other frames) | motion filter, written after pilot 1 from physics alone | 88.1% | **63.3%** | 0.3% of steps | stop |
+
+The motion filter removed the detector's jumps between objects. Even so, the two balls stayed
+more than 3 m apart on about a quarter of the frames. Without labels we can't tell which one is
+right there, so we kept the tracking's ball. The detector code stays in the repository as
+documented work; it does not touch the submitted file.
+
+## 7. Limitations and next steps
 
 - **Different labels.** The ground truth comes from corrected tracking. Our tuning labels come
   from event data, a different source with its own idea of when control starts. Possession
@@ -131,13 +163,15 @@ methods anyway.
 - **Too much dead ball.** On the sample games our rules call 41–43% of frames dead where the events
   say 30–34%, and on our match 46%. Most of it is the tracking losing the ball for over 5 s while
   play goes on.
-- **Ball missing on 41% of frames.** We rely on the tracking's ball alone. A ball detector
-  trained on outside football footage, and run on the tactical video, is our next step.
+- **Ball missing on 41% of frames.** We rely on the tracking's ball alone. Our detector trained on
+  outside footage (section 6) disagreed with the tracking too often to be trusted without labels.
+  A detector trained on footage from the same camera system, or a few hand-labelled frames of
+  *other* matches from that camera, would be the next step.
 - **Ball in the air.** The tracking puts the ball on the ground plane, so a high ball "lands"
   metres away from where it really is.
 - **Only three sample games for tuning**, all from the same tracking provider.
 
-## 7. Reproduction
+## 8. Reproduction
 
 See [README.md](README.md). In short:
 
