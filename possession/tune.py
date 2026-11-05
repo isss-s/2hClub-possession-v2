@@ -2,11 +2,17 @@
 
     python possession/tune.py            # writes possession/settings.json
 
-Coordinate search: starting from football-reasoned values, each setting in turn is tried over its
-range with the others fixed, and the value with the best mean spellF1 over the sample games is
-kept if it gains at least MIN_GAIN on the mean and costs no single game more than MAX_LOSS; this repeats until nothing changes. The scorer is the official one
+Coordinate search: each setting in turn is tried over its range with the others fixed, and the
+value with the best mean spellF1 over the sample games is kept if it gains at least MIN_GAIN on the
+mean and costs no single game more than MAX_LOSS; this repeats until nothing changes. The search
+runs from STARTS starting points -- the football-reasoned values, and STARTS - 1 drawn at random
+from the ranges (seed SEED) -- and the best end point is kept. The scorer is the official one
 (evaluation/possession_metrics.py), run on the event-based labels of metrica.py.
+
+Multiple starts were adopted because, judged by leaving one game out, they beat the single start
+(0.696 vs 0.690 on the left-out games, no game more than 0.008 worse).
 """
+import random
 import json
 import os
 import sys
@@ -24,6 +30,8 @@ import rules  # noqa: E402
 SETTINGS = os.path.join(HERE, "settings.json")
 MIN_GAIN = 0.005   # a change must gain this much mean spellF1 to be kept; smaller gains are noise
 MAX_LOSS = 0.01    # ...and must not cost any single game more than this
+STARTS = 8
+SEED = 0
 
 # Starting point: values from football reasoning, before looking at any score.
 START = {
@@ -100,11 +108,34 @@ def search(games, p, verbose=True):
     return p, best
 
 
+def starting_points():
+    rng = random.Random(SEED)
+    points = [dict(START)]
+    for _ in range(STARTS - 1):
+        p = dict(START)
+        for key, values in SEARCH.items():
+            p[key] = rng.choice(values)
+        points.append(p)
+    return points
+
+
+def search_all(games, verbose=False):
+    """The best end point of `search` over all starting points."""
+    best_p, best_s = None, -1.0
+    for k, p0 in enumerate(starting_points()):
+        p, s = search(games, p0, verbose=False)
+        if verbose:
+            print("start {}: spellF1 {:.4f}".format(k, s), flush=True)
+        if s > best_s:
+            best_p, best_s = p, s
+    return best_p, best_s
+
+
 def leave_one_out(games):
     """For each game: tune on the others, score this one. The fair estimate for a new match."""
     rows = []
     for i in range(len(games)):
-        p, _ = search(games[:i] + games[i + 1:], START, verbose=False)
+        p, _ = search_all(games[:i] + games[i + 1:])
         rows.append((score([games[i]], START)[0], score([games[i]], p)[0]))
     return rows
 
@@ -114,7 +145,7 @@ if __name__ == "__main__":
     print("leave one game out (tuned on the other games):")
     for g, (before, after) in zip(metrica.GAMES, leave_one_out(games)):
         print("  game {}: starting values {:.3f} -> tuned {:.3f}".format(g, before, after))
-    p, best = search(games, START)
+    p, best = search_all(games, verbose=True)
     spell, macro, per_game = score(games, p)
     print("chosen:", json.dumps(p))
     print("spellF1 {:.4f} (per game {})  macroF1 {:.4f}".format(

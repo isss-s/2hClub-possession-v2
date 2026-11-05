@@ -52,14 +52,14 @@ numbers come from automatic statistics of the tracking files only.
 
 | rule | what it does | setting (tuned on Metrica) |
 |---|---|---|
-| **On the ball** | a team is on the ball when one of its players is within `radius` of it; the nearer team wins if both are | `radius` 2.5 m |
-| **Change of possession** | the other team has been on the ball for `switch` frames in a row; dated back to where that run began | `switch` 25 frames (1 s) |
-| **Touches** | a sharp change in the ball's velocity (more than `touch` m/s, 3 frames before vs 3 after) next to a player (within `touch_radius`); `touches` touches in a row by the other team, with none by the team in possession, also switch possession | 3 m/s, 2.5 m, 2 touches |
+| **On the ball** | a team is on the ball when one of its players is within `radius` of it; the nearer team wins if both are | `radius` 2.0 m |
+| **Change of possession** | the other team has been on the ball for `switch` frames in a row; dated back to where that run began | `switch` 20 frames (0.8 s) |
+| **Touches** | a sharp change in the ball's velocity (more than `touch` m/s, 3 frames before vs 3 after) next to a player (within `touch_radius`); `touches` touches in a row by the other team, with none by the team in possession, also switch possession | 1 m/s, 4 m, 2 touches |
 | **Loose ball / pass in flight** | nobody is on the ball: the last team keeps it (there is no "contested" state) | — |
 | **Ball out of play** | the ball more than `out_margin` past a line: dead | 0.5 m |
-| **Ball missing** | a gap longer than `gap_long`: dead; shorter gaps are the ball hidden behind players, and play goes on | 125 frames (5 s) |
-| **Restart kick** | a stoppage of at least `min_stop` frames lasts until the ball first moves faster than `kick`, for at most `max_wait` | 2 s, 4 m/s, 10 s |
-| **Slow ball** | the ±5 s median ball speed under `slow` for 12 s: dead | 0.5 m/s, so in practice almost never |
+| **Ball missing** | a gap longer than `gap_long`: dead; shorter gaps are the ball hidden behind players, and play goes on | 75 frames (3 s) |
+| **Restart kick** | a stoppage of at least `min_stop` frames lasts until the ball first moves faster than `kick`, for at most `max_wait` | 1 s, 4 m/s, 20 s |
+| **Slow ball** | the ±5 s median ball speed under `slow` for `min_dead` frames: dead | 0.5 m/s for 8 s, so in practice almost never |
 | **Restarts** | after a stoppage, possession goes to the first team on the ball | — |
 | **Abstention** | we never output `X` | — |
 
@@ -71,6 +71,12 @@ numbers come from automatic statistics of the tracking files only.
    raises the mean spellF1 over the three sample games by at least 0.005 (smaller gains are
    noise) **and** costs no single game more than 0.01.
 3. Repeat until nothing changes.
+4. Do this from 8 starting points: the football-reasoned values, and 7 drawn at random from the
+   ranges (fixed seed). Keep the best end point.
+
+Step 4 was added late, and only after a test we fixed in advance. Judged by leaving one game
+out, it had to beat the single start by at least 0.005, with no left-out game more than 0.01
+worse. It did: 0.696 against 0.690, with its worst game 0.008 lower.
 
 The official scorer (`evaluation/possession_metrics.py`) does the scoring. The chosen values are
 committed in `possession/settings.json`.
@@ -85,7 +91,7 @@ committed in `possession/settings.json`.
 | Homography | tried, dropped | with the detector: pixels → pitch metres |
 | Smart Tagging | no | — |
 | Broadcast video / tracking | no | not synchronised with the tactical timeline |
-| Public 5-minute ground truth | pipeline check only | run once on the final file, to confirm that frames line up and labels mean what we think (section 5); never used to choose anything |
+| Public 5-minute ground truth | pipeline check only | run on each final file *after* its settings were fixed, to confirm that frames line up and labels mean what we think (section 5); never used to choose anything |
 | External: Metrica Sports sample games | **yes** | choosing the settings (section 2) |
 
 ## 5. Results
@@ -95,29 +101,30 @@ committed in `possession/settings.json`.
 | | spellF1 | macroF1 |
 |---|---|---|
 | starting values | 0.627 | 0.845 |
-| tuned values | **0.684** (games 1/2/3: 0.669, 0.708, 0.673) | **0.862** |
+| tuned values | **0.706** (games 1/2/3: 0.697, 0.725, 0.698) | **0.868** |
 
 **Do the settings carry over to a game they weren't tuned on?** Leave one game out: tune on the
 other two games, score the one left out.
 
 | left out | starting values | tuned on the other two |
 |---|---|---|
-| game 1 | 0.593 | **0.688** |
-| game 2 | 0.666 | **0.708** |
-| game 3 | 0.622 | **0.673** |
-| mean | 0.627 | **0.690** |
+| game 1 | 0.593 | **0.680** |
+| game 2 | 0.666 | **0.709** |
+| game 3 | 0.622 | **0.698** |
+| mean | 0.627 | **0.696** |
 
-The left-out game improves every time, by +0.04 to +0.10, which is our best estimate of the gain on
-a new match. Tuning on two games and tuning on all three choose the same settings.
+The left-out game improves every time, by +0.04 to +0.09. That is our best estimate of the gain on
+a new match.
 
-**Shape of our output on the provided match**: about 3.2 possessions a minute, mean 10.1 s,
-median 7.0 s. The sample games' event labels give 3.4–3.7 a minute, mean 10.6–12.2 s.
+**Shape of our output on the provided match** (both halves): 3.6 possessions a minute, mean
+8.7 s, median 5.3 s. The sample games' event labels give 3.4–4.0 a minute, mean 10.6–12.2 s,
+median 5.3–6.2 s.
 
-**Pipeline check on the public 5 minutes:** spellF1 0.400, macroF1 0.684. The official baselines
+**Pipeline check on the public 5 minutes:** spellF1 0.467, macroF1 0.681. The official baselines
 score 0.038–0.424 spellF1 and 0.597–0.621 macroF1 there. The home share of alive time is within
-3 points of the truth, which confirms the frames are aligned. We ran this once, on the final
-file, and changed nothing afterwards. Five minutes (17 possessions) is far too little to rank
-methods anyway.
+1.3 points of the truth, which confirms the frames are aligned. We ran it only after each file's
+settings were fixed, and never changed anything because of it. Five minutes (17 possessions) is
+far too little to rank methods anyway.
 
 ## 6. Tried and dropped: a ball detector trained on other matches (`vision/`)
 
@@ -157,11 +164,10 @@ documented work; it does not touch the submitted file.
   from event data, a different source with its own idea of when control starts. Possession
   changes may be dated slightly differently.
 - **Different tracking.** The sample games' ball moves more smoothly from frame to frame, so
-  velocity-based rules find far more touches there (about 18 a minute) than on our match (about
-  1). On our match the touch rule therefore rarely fires, and most changes come from the 1-second
-  control rule.
-- **Too much dead ball.** On the sample games our rules call 41–43% of frames dead where the events
-  say 30–34%, and on our match 46%. Most of it is the tracking losing the ball for over 5 s while
+  velocity-based rules find more touches there (19–24 a minute with our settings) than on our
+  match (14 a minute).
+- **Too much dead ball.** On the sample games our rules call 32–43% of frames dead where the events
+  say 26–34%, and on our match 47%. Most of it is the tracking losing the ball for over 5 s while
   play goes on. We tried calling such a gap dead only while the players walk, since in the
   sample games players move at about 1.2 m/s in these live gaps against 0.9 m/s in stoppages,
   and their speeds are distributed like ours. Every setting we tried (thresholds 0.9–1.5 m/s,

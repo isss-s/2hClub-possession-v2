@@ -1,15 +1,15 @@
 {
-  "radius": 2.5,
-  "switch": 25,
-  "gap_long": 125,
+  "radius": 2.0,
+  "switch": 20,
+  "gap_long": 75,
   "out_margin": 0.5,
   "slow_window": 125,
   "slow": 0.5,
-  "min_dead": 300,
-  "min_stop": 50,
+  "min_dead": 200,
+  "min_stop": 25,
   "kick": 4.0,
-  "max_wait": 250,
-  "touch": 3.0,
-  "touch_radius": 2.5,
+  "max_wait": 500,
+  "touch": 1.0,
+  "touch_radius": 4.0,
   "touches": 2
 }
