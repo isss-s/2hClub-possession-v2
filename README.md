@@ -36,6 +36,7 @@ deterministic: the same inputs always give the same `settings.json` and the same
 | `possession/tune.py` | chooses the settings on the sample games, with the official scorer |
 | `possession/settings.json` | the chosen settings |
 | `possession/match.py` | applies the rules and settings to our match; writes the submission |
+| `possession/idsse.py` | reads seven public Bundesliga matches; looked at as extra tuning data and not used (2hClub.md, section 7) |
 | `vision/` | a ball detector trained on outside footage, tried and dropped (2hClub.md, section 6); not used for the submission |
 
 The match data and every file derived from it stay out of this repository; the data is licensed

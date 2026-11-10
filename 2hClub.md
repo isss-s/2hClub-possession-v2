@@ -180,7 +180,14 @@ documented work; it does not touch the submitted file.
   *other* matches from that camera, would be the next step.
 - **Ball in the air.** The tracking puts the ball on the ground plane, so a high ball "lands"
   metres away from where it really is.
-- **Only three sample games for tuning**, all from the same tracking provider.
+- **Only three sample games for tuning**, all from the same tracking provider. We looked at seven
+  more: the Bundesliga matches of Bassek et al. (2025, CC BY 4.0), whose tracking carries a ball
+  status and a possession team on every frame (`possession/idsse.py` reads them). We did not tune
+  on them. Their possession follows a different convention from this challenge: 3.8–5.3
+  possessions a minute with a median of 3–5 s, against the 3.4 a minute and 14.2 s mean that the
+  starter kit reports for the public ground truth. Metrica's event-based labels (3.4–4.0 a
+  minute, mean 10.6–12.2 s) are much closer to that, and settings tuned towards the Bundesliga
+  labels would change possession too readily.
 
 ## 8. Reproduction
 
