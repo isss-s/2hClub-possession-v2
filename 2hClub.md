@@ -174,6 +174,9 @@ documented work; it does not touch the submitted file.
   windows of 1–5 s, gap limits of 1–5 s) lowered the sample games' mean spellF1, by 0.005 to
   0.02, so it is not used. Without the ball, the team in possession during such a gap is unknown
   anyway, so calling it live mostly adds frames with the wrong team.
+- **Fragments.** We tried merging very short stoppages and possessions into their neighbours.
+  Judged by leaving one game out, it gained nothing (0.6956 to 0.6958) and cost one game 0.011, so
+  it is not used.
 - **Ball missing on 41% of frames.** We rely on the tracking's ball alone. Our detector trained on
   outside footage (section 6) disagreed with the tracking too often to be trusted without labels.
   A detector trained on footage from the same camera system, or a few hand-labelled frames of
